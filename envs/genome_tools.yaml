@@ -1,0 +1,11 @@
+name: genome_tools
+channels:
+  - bioconda
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python>=3.9
+  - wgsim=1.0
+  - bowtie2
+  - samtools
+  - ncurses

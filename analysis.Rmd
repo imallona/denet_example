@@ -1,0 +1,190 @@
+---
+title: "denet profiling overhead and detail in a snakemake alignment workflow"
+output:
+  pdf_document:
+    fig_caption: true
+    keep_tex: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      fig.width = 10, fig.height = 8)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(jsonlite)
+library(patchwork)
+library(scales)
+library(stringr)
+```
+
+```{r load-benchmark-tsv}
+step_labels <- c(
+  simulate_genome = "Genome\nsimulation",
+  index_genome    = "Genome\nindexing",
+  simulate_reads  = "Read\nsimulation",
+  align_sort_bam  = "Align, sort\n& index"
+)
+
+steps <- names(step_labels)
+
+read_benchmarks <- function(outdir, condition) {
+  lapply(steps, function(step) {
+    path <- file.path(outdir, "benchmarks", paste0(step, ".tsv"))
+    df <- read.table(path, header = TRUE, sep = "\t")
+    df$step <- step
+    df$condition <- condition
+    df$repeat_id <- seq_len(nrow(df))
+    df
+  }) |> bind_rows()
+}
+
+baseline <- read_benchmarks("results_baseline", "Snakemake only")
+denet    <- read_benchmarks("results_denet",    "Snakemake + denet")
+
+bench <- bind_rows(baseline, denet) |>
+  mutate(
+    step_label = factor(step_labels[step], levels = step_labels),
+    condition  = factor(condition, levels = c("Snakemake only", "Snakemake + denet"))
+  )
+```
+
+```{r load-denet-jsonl}
+parse_denet_jsonl <- function(path) {
+  lines <- readLines(path)
+  # first line is metadata (has "pid" key), remaining lines are samples
+  samples <- lines[sapply(lines, function(l) grepl('"ts_ms"', l))]
+  parsed <- lapply(samples, function(l) {
+    obj <- fromJSON(l)
+    agg <- obj$aggregated
+    data.frame(
+      ts_ms         = agg$ts_ms,
+      cpu_usage     = agg$cpu_usage,
+      mem_rss_mb    = agg$mem_rss_kb / 1024,
+      disk_read_mb  = agg$disk_read_bytes / 1024^2,
+      disk_write_mb = agg$disk_write_bytes / 1024^2,
+      thread_count  = agg$thread_count
+    )
+  })
+  df <- bind_rows(parsed)
+  # relative time from start of first sample
+  df$time_s <- (df$ts_ms - df$ts_ms[1]) / 1000
+  df
+}
+
+denet_metrics_dir <- "results_denet/denet_metrics"
+
+denet_files <- list.files(denet_metrics_dir, pattern = "\\.jsonl$", full.names = TRUE)
+
+denet_ts <- lapply(denet_files, function(f) {
+  step <- str_remove(basename(f), "\\.jsonl$")
+  # each repeat appends to the same file; split on metadata lines
+  lines <- readLines(f)
+  meta_idx <- which(grepl('"pid"', lines))
+  run_list <- lapply(seq_along(meta_idx), function(i) {
+    start <- meta_idx[i] + 1
+    end   <- if (i < length(meta_idx)) meta_idx[i + 1] - 1 else length(lines)
+    block <- lines[start:end]
+    block <- block[nzchar(block) & grepl('"ts_ms"', block)]
+    if (length(block) == 0) return(NULL)
+    parsed <- lapply(block, function(l) {
+      obj <- fromJSON(l)
+      agg <- obj$aggregated
+      data.frame(
+        ts_ms         = agg$ts_ms,
+        cpu_usage     = agg$cpu_usage,
+        mem_rss_mb    = agg$mem_rss_kb / 1024,
+        disk_write_mb = agg$disk_write_bytes / 1024^2
+      )
+    })
+    df <- bind_rows(parsed)
+    df$time_s  <- (df$ts_ms - df$ts_ms[1]) / 1000
+    df$repeat_id <- i
+    df
+  })
+  df <- bind_rows(run_list)
+  df$step <- step
+  df
+}) |> bind_rows() |>
+  mutate(step_label = factor(step_labels[step], levels = step_labels))
+```
+
+```{r fig-wall-time}
+bench_summary <- bench |>
+  group_by(step_label, condition) |>
+  summarise(
+    mean_s = mean(s),
+    sd_s   = sd(s),
+    .groups = "drop"
+  )
+
+p_time <- ggplot(bench_summary,
+       aes(x = step_label, y = mean_s, fill = condition,
+           ymin = mean_s - sd_s, ymax = mean_s + sd_s)) +
+  geom_col(position = position_dodge(0.75), width = 0.65) +
+  geom_errorbar(position = position_dodge(0.75), width = 0.25) +
+  scale_fill_manual(values = c("Snakemake only" = "#4C72B0",
+                               "Snakemake + denet" = "#DD8452")) +
+  labs(x = NULL, y = "Wall-clock time (s)", fill = NULL,
+       title = "A  Wall-clock time per step") +
+  theme_bw(base_size = 11) +
+  theme(legend.position = "bottom",
+        panel.grid.major.x = element_blank())
+```
+
+```{r fig-max-rss}
+rss_summary <- bench |>
+  group_by(step_label, condition) |>
+  summarise(
+    mean_rss = mean(max_rss),
+    sd_rss   = sd(max_rss),
+    .groups = "drop"
+  )
+
+p_rss <- ggplot(rss_summary,
+       aes(x = step_label, y = mean_rss, fill = condition,
+           ymin = mean_rss - sd_rss, ymax = mean_rss + sd_rss)) +
+  geom_col(position = position_dodge(0.75), width = 0.65) +
+  geom_errorbar(position = position_dodge(0.75), width = 0.25) +
+  scale_fill_manual(values = c("Snakemake only" = "#4C72B0",
+                               "Snakemake + denet" = "#DD8452")) +
+  labs(x = NULL, y = "Peak RSS (MB)", fill = NULL,
+       title = "B  Peak resident memory per step") +
+  theme_bw(base_size = 11) +
+  theme(legend.position = "bottom",
+        panel.grid.major.x = element_blank())
+```
+
+```{r fig-cpu-timeseries}
+ts_align <- denet_ts |>
+  filter(step == "align_sort_bam") |>
+  mutate(repeat_label = factor(paste("run", repeat_id)))
+
+p_cpu <- ggplot(ts_align, aes(x = time_s, y = cpu_usage,
+                               colour = repeat_label, group = repeat_label)) +
+  geom_line(alpha = 0.75, linewidth = 0.5) +
+  scale_colour_brewer(palette = "Set2") +
+  labs(x = "Elapsed time (s)", y = "CPU usage (%)",
+       colour = NULL,
+       title = "C  CPU usage during alignment (denet timeseries, 5 repeats)") +
+  theme_bw(base_size = 11) +
+  theme(legend.position = "bottom")
+```
+
+```{r fig-mem-timeseries}
+p_mem <- ggplot(ts_align, aes(x = time_s, y = mem_rss_mb,
+                               colour = repeat_label, group = repeat_label)) +
+  geom_line(alpha = 0.75, linewidth = 0.5) +
+  scale_colour_brewer(palette = "Set2") +
+  labs(x = "Elapsed time (s)", y = "RSS (MB)",
+       colour = NULL,
+       title = "D  Memory usage during alignment (denet timeseries, 5 repeats)") +
+  theme_bw(base_size = 11) +
+  theme(legend.position = "bottom")
+```
+
+```{r combined-figure, fig.cap="Resource profiling of a simulated read alignment workflow. A 25 Mb genome (5 chromosomes of 5 Mb each) was simulated and 20 million paired-end reads (150 bp) were generated with wgsim. All steps were executed with snakemake and benchmarked using its built-in benchmark directive (5 repeats). For the denet condition, each rule command was additionally wrapped with denet. (A) Mean wall-clock time per step; error bars show one standard deviation over 5 repeats. (B) Mean peak RSS per step. (C) CPU usage timeseries for the alignment step across all 5 repeats, as recorded by denet. (D) RSS timeseries for the same step."}
+(p_time | p_rss) / (p_cpu | p_mem) +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+```

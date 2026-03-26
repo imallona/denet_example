@@ -1,0 +1,17 @@
+name: rstats
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - r-base>=4.3
+  - r-ggplot2>=3.4
+  - r-dplyr>=1.1
+  - r-tidyr>=1.3
+  - r-jsonlite>=1.8
+  - r-rmarkdown>=2.25
+  - r-knitr>=1.45
+  - r-patchwork>=1.2
+  - r-scales>=1.3
+  - r-stringr>=1.5
+  - pandoc
