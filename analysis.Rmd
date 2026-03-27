@@ -1,9 +1,8 @@
 ---
 title: "denet profiling overhead and detail in a snakemake alignment workflow"
 output:
-  pdf_document:
+  html_document:
     fig_caption: true
-    keep_tex: false
 ---
 
 ```{r setup, include=FALSE}

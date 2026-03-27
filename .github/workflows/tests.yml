@@ -1,0 +1,131 @@
+name: tests
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: snakemake
+          create-args: python=3.12 snakemake
+          condarc: |
+            channels:
+              - conda-forge
+              - bioconda
+
+      - name: dry-run baseline
+        run: |
+          snakemake \
+            --config use_denet=false outdir=results_baseline \
+            --dry-run \
+            --nolock \
+            --cores 4
+
+  integration-baseline:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: snakemake
+          create-args: python=3.12 snakemake
+          condarc: |
+            channels:
+              - conda-forge
+              - bioconda
+
+      - name: cache conda environments
+        uses: actions/cache@v4
+        with:
+          path: .snakemake/conda
+          key: snakemake-conda-${{ hashFiles('envs/genome_tools.yaml') }}
+
+      - name: run baseline pipeline
+        run: |
+          snakemake \
+            --config use_denet=false outdir=results_baseline n_reads=10000 n_chromosomes=2 chr_length=100000 benchmark_repeats=1 \
+            --use-conda \
+            --nolock \
+            --rerun-incomplete \
+            --cores 4
+
+      - name: upload logs and benchmarks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-outputs
+          path: |
+            results_baseline/logs/
+            results_baseline/benchmarks/
+            .snakemake/log/
+          if-no-files-found: ignore
+
+  integration-denet:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: snakemake
+          create-args: python=3.12 snakemake
+          condarc: |
+            channels:
+              - conda-forge
+              - bioconda
+
+      - name: cache conda environments
+        uses: actions/cache@v4
+        with:
+          path: .snakemake/conda
+          key: snakemake-conda-${{ hashFiles('envs/genome_tools.yaml') }}
+
+      - name: cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/denet
+          key: cargo-denet-${{ runner.os }}
+
+      - name: install denet
+        run: cargo install denet
+
+      - name: run denet pipeline
+        run: |
+          PATH="$HOME/.cargo/bin:$PATH" snakemake \
+            --config use_denet=true outdir=results_denet n_reads=10000 n_chromosomes=2 chr_length=100000 benchmark_repeats=1 \
+            --use-conda \
+            --nolock \
+            --rerun-incomplete \
+            --cores 4
+
+      - name: render report
+        run: |
+          micromamba create -n rstats --file envs/rstats.yaml -y
+          micromamba run -n rstats Rscript -e \
+            "rmarkdown::render('analysis.Rmd', output_dir='figures')"
+
+      - name: upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: figures/analysis.html
+          if-no-files-found: error
