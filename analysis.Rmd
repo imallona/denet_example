@@ -167,55 +167,35 @@ p_rss <- ggplot(rss_summary,
 ```
 
 ```{r fig-cpu-timeseries}
-ts_align <- denet_ts |>
-  filter(step == "align_sort_bam")
-
-# Individual repeat lines cross each other and vary in length, so we bin time
-# into fixed intervals and show the cross-repeat mean with a +/- 1 SD ribbon.
-# bin_s controls the resolution; smaller values preserve more detail but require
-# enough samples per bin for a stable SD estimate.
-bin_s <- 0.25
-
-ts_align_cpu <- ts_align |>
-  mutate(time_bin = floor(time_s / bin_s) * bin_s) |>
-  group_by(time_bin) |>
-  summarise(
-    mean_val = mean(cpu_usage),
-    sd_val   = sd(cpu_usage),
-    .groups  = "drop"
-  )
-
-p_cpu <- ggplot(ts_align_cpu, aes(x = time_bin)) +
-  geom_ribbon(aes(ymin = mean_val - sd_val, ymax = mean_val + sd_val),
-              fill = "#4C72B0", alpha = 0.3, na.rm = TRUE) +
-  geom_line(aes(y = mean_val), color = "#4C72B0", linewidth = 0.7) +
-  labs(x = "Elapsed time (s)", y = "CPU usage (%)",
-       title = "C  CPU usage during alignment",
-       subtitle = paste0("mean +/- 1 SD across repeats, ", bin_s, " s bins")) +
-  theme_bw(base_size = 11)
+# All rules shown, each repeat as its own line, colored by step.
+# time_s is relative to the start of each repeat so rules with different
+# durations are comparable on the same x-axis.
+p_cpu <- ggplot(denet_ts,
+                aes(x = time_s, y = cpu_usage,
+                    color = step_label,
+                    group = interaction(step_label, repeat_id))) +
+  geom_line(alpha = 0.6, linewidth = 0.5) +
+  scale_color_brewer(palette = "Set2") +
+  labs(x = "Elapsed time (s)", y = "CPU usage (%)", color = NULL,
+       title = "C  CPU usage per rule (all repeats)") +
+  theme_bw(base_size = 11) +
+  theme(legend.position = "bottom")
 ```
 
 ```{r fig-mem-timeseries}
-ts_align_mem <- ts_align |>
-  mutate(time_bin = floor(time_s / bin_s) * bin_s) |>
-  group_by(time_bin) |>
-  summarise(
-    mean_val = mean(mem_rss_mb),
-    sd_val   = sd(mem_rss_mb),
-    .groups  = "drop"
-  )
-
-p_mem <- ggplot(ts_align_mem, aes(x = time_bin)) +
-  geom_ribbon(aes(ymin = mean_val - sd_val, ymax = mean_val + sd_val),
-              fill = "#4C72B0", alpha = 0.3, na.rm = TRUE) +
-  geom_line(aes(y = mean_val), color = "#4C72B0", linewidth = 0.7) +
-  labs(x = "Elapsed time (s)", y = "RSS (MB)",
-       title = "D  Memory usage during alignment",
-       subtitle = paste0("mean +/- 1 SD across repeats, ", bin_s, " s bins")) +
-  theme_bw(base_size = 11)
+p_mem <- ggplot(denet_ts,
+                aes(x = time_s, y = mem_rss_mb,
+                    color = step_label,
+                    group = interaction(step_label, repeat_id))) +
+  geom_line(alpha = 0.6, linewidth = 0.5) +
+  scale_color_brewer(palette = "Set2") +
+  labs(x = "Elapsed time (s)", y = "RSS (MB)", color = NULL,
+       title = "D  Memory usage per rule (all repeats)") +
+  theme_bw(base_size = 11) +
+  theme(legend.position = "bottom")
 ```
 
-```{r combined-figure, fig.cap="Resource profiling of a simulated read alignment workflow. (A, B) Mean wall-clock time and peak RSS per pipeline step; error bars are +/- 1 SD across benchmark repeats. SD was chosen over SE or CV to express absolute run-to-run variability in interpretable units. (C, D) CPU and RSS timeseries for the alignment step, recorded by denet. Raw per-repeat traces were binned into 0.25 s intervals and summarised as mean +/- 1 SD ribbon, which avoids cluttered crossing lines while preserving the temporal shape of resource usage."}
+```{r combined-figure, fig.cap="Resource profiling of a simulated read alignment workflow. (A, B) Mean wall-clock time and peak RSS per pipeline step; error bars are +/- 1 SD across benchmark repeats. SD was chosen over SE or CV to express absolute run-to-run variability in interpretable units. (C, D) CPU and RSS timeseries recorded by denet at 100 ms intervals for all four rules; each line is one repeat, colored by rule. Elapsed time is relative to the start of each repeat."}
 (p_time | p_rss) / (p_cpu | p_mem) +
   plot_layout(guides = "collect") &
   theme(legend.position = "bottom")
