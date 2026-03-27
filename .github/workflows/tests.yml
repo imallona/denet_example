@@ -107,7 +107,7 @@ jobs:
 
       - name: install denet
         run: |
-          cargo install denet
+          which denet || cargo install denet
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: run baseline pipeline
