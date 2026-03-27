@@ -1,5 +1,5 @@
 ---
-title: "denet profiling overhead and detail in a snakemake alignment workflow"
+title: "denet example in an alignment workflow"
 output:
   html_document:
     fig_caption: true
