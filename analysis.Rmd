@@ -1,9 +1,8 @@
 ---
-title: "denet profiling overhead and detail in a snakemake alignment workflow"
+title: "denet example in an alignment workflow"
 output:
-  pdf_document:
+  html_document:
     fig_caption: true
-    keep_tex: false
 ---
 
 ```{r setup, include=FALSE}
@@ -110,6 +109,13 @@ denet_ts <- lapply(denet_files, function(f) {
 ```
 
 ```{r fig-wall-time}
+# n_repeats is read from data so the subtitle stays accurate if benchmark_repeats changes
+n_repeats <- bench |>
+  distinct(step_label, condition, repeat_id) |>
+  count(step_label, condition) |>
+  pull(n) |>
+  max()
+
 bench_summary <- bench |>
   group_by(step_label, condition) |>
   summarise(
@@ -118,6 +124,9 @@ bench_summary <- bench |>
     .groups = "drop"
   )
 
+# Error bars show +/- 1 SD across repeats.
+# SD (rather than SE or CV) is used because we want to convey the absolute
+# run-to-run spread in seconds, not the precision of the mean estimate.
 p_time <- ggplot(bench_summary,
        aes(x = step_label, y = mean_s, fill = condition,
            ymin = mean_s - sd_s, ymax = mean_s + sd_s)) +
@@ -126,7 +135,8 @@ p_time <- ggplot(bench_summary,
   scale_fill_manual(values = c("Snakemake only" = "#4C72B0",
                                "Snakemake + denet" = "#DD8452")) +
   labs(x = NULL, y = "Wall-clock time (s)", fill = NULL,
-       title = "A  Wall-clock time per step") +
+       title = "A  Wall-clock time per step",
+       subtitle = paste0("mean +/- 1 SD, n = ", n_repeats, " repeats")) +
   theme_bw(base_size = 11) +
   theme(legend.position = "bottom",
         panel.grid.major.x = element_blank())
@@ -138,7 +148,7 @@ rss_summary <- bench |>
   summarise(
     mean_rss = mean(max_rss),
     sd_rss   = sd(max_rss),
-    .groups = "drop"
+    .groups  = "drop"
   )
 
 p_rss <- ggplot(rss_summary,
@@ -149,41 +159,43 @@ p_rss <- ggplot(rss_summary,
   scale_fill_manual(values = c("Snakemake only" = "#4C72B0",
                                "Snakemake + denet" = "#DD8452")) +
   labs(x = NULL, y = "Peak RSS (MB)", fill = NULL,
-       title = "B  Peak resident memory per step") +
+       title = "B  Peak resident memory per step",
+       subtitle = paste0("mean +/- 1 SD, n = ", n_repeats, " repeats")) +
   theme_bw(base_size = 11) +
   theme(legend.position = "bottom",
         panel.grid.major.x = element_blank())
 ```
 
 ```{r fig-cpu-timeseries}
-ts_align <- denet_ts |>
-  filter(step == "align_sort_bam") |>
-  mutate(repeat_label = factor(paste("run", repeat_id)))
-
-p_cpu <- ggplot(ts_align, aes(x = time_s, y = cpu_usage,
-                               colour = repeat_label, group = repeat_label)) +
-  geom_line(alpha = 0.75, linewidth = 0.5) +
-  scale_colour_brewer(palette = "Set2") +
-  labs(x = "Elapsed time (s)", y = "CPU usage (%)",
-       colour = NULL,
-       title = "C  CPU usage during alignment (denet timeseries, 5 repeats)") +
+# All rules shown, each repeat as its own line, colored by step.
+# time_s is relative to the start of each repeat so rules with different
+# durations are comparable on the same x-axis.
+p_cpu <- ggplot(denet_ts,
+                aes(x = time_s, y = cpu_usage,
+                    color = step_label,
+                    group = interaction(step_label, repeat_id))) +
+  geom_line(alpha = 0.6, linewidth = 0.5) +
+  scale_color_brewer(palette = "Set2") +
+  labs(x = "Elapsed time (s)", y = "CPU usage (%)", color = NULL,
+       title = "C  CPU usage per rule (all repeats)") +
   theme_bw(base_size = 11) +
   theme(legend.position = "bottom")
 ```
 
 ```{r fig-mem-timeseries}
-p_mem <- ggplot(ts_align, aes(x = time_s, y = mem_rss_mb,
-                               colour = repeat_label, group = repeat_label)) +
-  geom_line(alpha = 0.75, linewidth = 0.5) +
-  scale_colour_brewer(palette = "Set2") +
-  labs(x = "Elapsed time (s)", y = "RSS (MB)",
-       colour = NULL,
-       title = "D  Memory usage during alignment (denet timeseries, 5 repeats)") +
+p_mem <- ggplot(denet_ts,
+                aes(x = time_s, y = mem_rss_mb,
+                    color = step_label,
+                    group = interaction(step_label, repeat_id))) +
+  geom_line(alpha = 0.6, linewidth = 0.5) +
+  scale_color_brewer(palette = "Set2") +
+  labs(x = "Elapsed time (s)", y = "RSS (MB)", color = NULL,
+       title = "D  Memory usage per rule (all repeats)") +
   theme_bw(base_size = 11) +
   theme(legend.position = "bottom")
 ```
 
-```{r combined-figure, fig.cap="Resource profiling of a simulated read alignment workflow. A 25 Mb genome (5 chromosomes of 5 Mb each) was simulated and 20 million paired-end reads (150 bp) were generated with wgsim. All steps were executed with snakemake and benchmarked using its built-in benchmark directive (5 repeats). For the denet condition, each rule command was additionally wrapped with denet. (A) Mean wall-clock time per step; error bars show one standard deviation over 5 repeats. (B) Mean peak RSS per step. (C) CPU usage timeseries for the alignment step across all 5 repeats, as recorded by denet. (D) RSS timeseries for the same step."}
+```{r combined-figure, fig.cap="Resource profiling of a simulated read alignment workflow. (A, B) Mean wall-clock time and peak RSS per pipeline step; error bars are +/- 1 SD across benchmark repeats. SD was chosen over SE or CV to express absolute run-to-run variability in interpretable units. (C, D) CPU and RSS timeseries recorded by denet at 100 ms intervals for all four rules; each line is one repeat, colored by rule. Elapsed time is relative to the start of each repeat."}
 (p_time | p_rss) / (p_cpu | p_mem) +
   plot_layout(guides = "collect") &
   theme(legend.position = "bottom")
