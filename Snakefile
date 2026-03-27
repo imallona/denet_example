@@ -13,7 +13,7 @@ bench_repeats = config.get("benchmark_repeats", 5)
 def wrap(cmd, step):
     if use_denet:
         out = f"{outdir}/denet_metrics/{step}.jsonl"
-        return f"mkdir -p {outdir}/denet_metrics && denet --out {out} run {cmd}"
+        return f"mkdir -p {outdir}/denet_metrics && denet --out {out} run -- {cmd}"
     return cmd
 
 

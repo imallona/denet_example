@@ -106,16 +106,38 @@ jobs:
           key: cargo-denet-${{ runner.os }}
 
       - name: install denet
-        run: cargo install denet
+        run: |
+          cargo install denet
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: run denet pipeline
         run: |
-          PATH="$HOME/.cargo/bin:$PATH" snakemake \
+          snakemake \
             --config use_denet=true outdir=results_denet n_reads=10000 n_chromosomes=2 chr_length=100000 benchmark_repeats=1 \
             --use-conda \
             --nolock \
             --rerun-incomplete \
             --cores 4
+
+      - name: print logs on failure
+        if: failure()
+        run: |
+          for f in results_denet/logs/*.log; do
+            echo "=== $f ==="
+            cat "$f" || true
+          done
+
+      - name: upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: denet-logs
+          path: |
+            results_denet/logs/
+            results_denet/benchmarks/
+            results_denet/denet_metrics/
+            .snakemake/log/
+          if-no-files-found: ignore
 
       - name: render report
         run: |
