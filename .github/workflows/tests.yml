@@ -110,6 +110,15 @@ jobs:
           cargo install denet
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
+      - name: run baseline pipeline
+        run: |
+          snakemake \
+            --config use_denet=false outdir=results_baseline n_reads=10000 n_chromosomes=2 chr_length=100000 benchmark_repeats=1 \
+            --use-conda \
+            --nolock \
+            --rerun-incomplete \
+            --cores 4
+
       - name: run denet pipeline
         run: |
           snakemake \
@@ -122,7 +131,7 @@ jobs:
       - name: print logs on failure
         if: failure()
         run: |
-          for f in results_denet/logs/*.log; do
+          for f in results_baseline/logs/*.log results_denet/logs/*.log; do
             echo "=== $f ==="
             cat "$f" || true
           done
@@ -133,6 +142,8 @@ jobs:
         with:
           name: denet-logs
           path: |
+            results_baseline/logs/
+            results_baseline/benchmarks/
             results_denet/logs/
             results_denet/benchmarks/
             results_denet/denet_metrics/
