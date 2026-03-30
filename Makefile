@@ -3,15 +3,19 @@ CONDA_RUN  := source ~/miniconda3/bin/activate && conda activate snakemake
 SMK        := snakemake --use-conda --conda-frontend conda --cores 4
 PAPER_DIR  := $(HOME)/src/2025_denet_profiler_appnote
 
-.PHONY: all baseline denet setup-r-env figures clean
+.PHONY: all conda-envs baseline denet setup-r-env figures clean
 
 all: baseline denet figures
 
-baseline:
+conda-envs:
+	$(CONDA_RUN) && \
+	$(SMK) --config use_denet=false outdir=results_baseline --conda-create-envs-only
+
+baseline: conda-envs
 	$(CONDA_RUN) && \
 	$(SMK) --config use_denet=false outdir=results_baseline --forceall
 
-denet:
+denet: conda-envs
 	$(CONDA_RUN) && \
 	PATH="$(HOME)/.cargo/bin:$$PATH" \
 	$(SMK) --config use_denet=true outdir=results_denet --forceall
