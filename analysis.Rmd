@@ -19,10 +19,12 @@ library(stringr)
 
 ```{r load-benchmark-tsv}
 step_labels <- c(
-  simulate_genome = "Genome\nsimulation",
-  index_genome    = "Genome\nindexing",
-  simulate_reads  = "Read\nsimulation",
-  align_sort_bam  = "Align, sort\n& index"
+  simulate_genome = "Simulate\ngenome",
+  index_genome    = "Index\ngenome",
+  simulate_reads  = "Simulate\nreads",
+  align           = "Align\nreads",
+  sort_bam        = "Sort\nBAM",
+  index_bam       = "Index\nBAM"
 )
 
 steps <- names(step_labels)
@@ -167,35 +169,41 @@ p_rss <- ggplot(rss_summary,
 ```
 
 ```{r fig-cpu-timeseries}
-# All rules shown, each repeat as its own line, colored by step.
-# time_s is relative to the start of each repeat so rules with different
-# durations are comparable on the same x-axis.
 p_cpu <- ggplot(denet_ts,
-                aes(x = time_s, y = cpu_usage,
-                    color = step_label,
-                    group = interaction(step_label, repeat_id))) +
-  geom_line(alpha = 0.6, linewidth = 0.5) +
+                aes(x = time_s, y = cpu_usage + 1,
+                    color = step_label)) +
+  geom_point(alpha = 0.5, size = 0.8) +
+  facet_wrap(~ step_label, scales = "free_x", nrow = 1) +
+  scale_x_continuous(n.breaks = 4) +
+  scale_y_continuous(trans = "log10",
+                     labels = function(x) round(x - 1, 0)) +
   scale_color_brewer(palette = "Set2") +
-  labs(x = "Elapsed time (s)", y = "CPU usage (%)", color = NULL,
+  labs(x = "Elapsed time (s)", y = "CPU usage (%)",
        title = "C  CPU usage per rule (all repeats)") +
+  guides(color = "none") +
   theme_bw(base_size = 11) +
-  theme(legend.position = "bottom")
+  theme(strip.text = element_text(size = 9),
+        axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 ```{r fig-mem-timeseries}
 p_mem <- ggplot(denet_ts,
                 aes(x = time_s, y = mem_rss_mb,
-                    color = step_label,
-                    group = interaction(step_label, repeat_id))) +
-  geom_line(alpha = 0.6, linewidth = 0.5) +
+                    color = step_label)) +
+  geom_point(alpha = 0.8, size = 1.5) +
+  facet_wrap(~ step_label, scales = "free_x", nrow = 1) +
+  scale_x_continuous(n.breaks = 4) +
+  scale_y_log10(labels = label_number(accuracy = 1)) +
   scale_color_brewer(palette = "Set2") +
-  labs(x = "Elapsed time (s)", y = "RSS (MB)", color = NULL,
+  labs(x = "Elapsed time (s)", y = "RSS (MB)",
        title = "D  Memory usage per rule (all repeats)") +
+  guides(color = "none") +
   theme_bw(base_size = 11) +
-  theme(legend.position = "bottom")
+  theme(strip.text = element_text(size = 9),
+        axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-```{r combined-figure, fig.cap="Resource profiling of a simulated read alignment workflow. (A, B) Mean wall-clock time and peak RSS per pipeline step; error bars are +/- 1 SD across benchmark repeats. SD was chosen over SE or CV to express absolute run-to-run variability in interpretable units. (C, D) CPU and RSS timeseries recorded by denet at 100 ms intervals for all four rules; each line is one repeat, colored by rule. Elapsed time is relative to the start of each repeat."}
+```{r combined-figure, fig.cap="Resource profiling of a simulated read alignment workflow. (A, B) Mean wall-clock time and peak RSS per pipeline step; error bars are +/- 1 SD across benchmark repeats. SD was chosen over SE or CV to express absolute run-to-run variability in interpretable units. (C, D) CPU and RSS timeseries recorded by denet at 50 ms intervals, faceted by rule in pipeline order; each line is one repeat. Elapsed time is relative to the start of each repeat. CPU usage is flat because steps run at consistent utilization throughout (e.g., bowtie2 at ~400% for four threads). RSS is flat because memory is allocated at process startup and does not change during execution."}
 (p_time | p_rss) / (p_cpu | p_mem) +
   plot_layout(guides = "collect") &
   theme(legend.position = "bottom")

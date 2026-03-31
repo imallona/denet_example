@@ -13,7 +13,13 @@ bench_repeats = config.get("benchmark_repeats", 5)
 def wrap(cmd, step):
     if use_denet:
         out = f"{outdir}/denet_metrics/{step}.jsonl"
-        return f"mkdir -p {outdir}/denet_metrics && denet --out {out} -i 100 -m 100 run -- {cmd}"
+        return "\n".join([
+            f"mkdir -p {outdir}/denet_metrics",
+            f"( {cmd} ) &",
+            "_denet_pid=$!",
+            f"denet -o {out} -i 50 -m 500 -q --nodump attach $_denet_pid || true",
+            "wait $_denet_pid",
+        ])
     return cmd
 
 
@@ -27,7 +33,9 @@ rule all:
                 "simulate_genome",
                 "index_genome",
                 "simulate_reads",
-                "align_sort_bam",
+                "align",
+                "sort_bam",
+                "index_bam",
             ],
         ),
 
@@ -41,11 +49,14 @@ rule simulate_genome:
         repeat(f"{outdir}/benchmarks/simulate_genome.tsv", bench_repeats)
     conda:
         "envs/genome_tools.yaml"
+    params:
+        n_chromosomes=n_chromosomes,
+        chr_length=chr_length,
     shell:
         wrap(
-            f"python scripts/simulate_genome.py {{output.fa}} {n_chromosomes} {chr_length}",
+            """python scripts/simulate_genome.py {output.fa} {params.n_chromosomes} {params.chr_length} 2> {log}""",
             "simulate_genome",
-        ) + " 2> {log}"
+        )
 
 
 rule index_genome:
@@ -67,11 +78,13 @@ rule index_genome:
         repeat(f"{outdir}/benchmarks/index_genome.tsv", bench_repeats)
     conda:
         "envs/genome_tools.yaml"
+    params:
+        idx_prefix=f"{outdir}/data/genome",
     shell:
         wrap(
-            f"bowtie2-build {{input.fa}} {outdir}/data/genome",
+            """bowtie2-build {input.fa} {params.idx_prefix} > {log} 2>&1""",
             "index_genome",
-        ) + " > {log} 2>&1"
+        )
 
 
 rule simulate_reads:
@@ -86,16 +99,21 @@ rule simulate_reads:
         repeat(f"{outdir}/benchmarks/simulate_reads.tsv", bench_repeats)
     conda:
         "envs/genome_tools.yaml"
+    params:
+        n_reads=n_reads,
+        reads_prefix=f"{outdir}/data/reads",
     shell:
         wrap(
-            f"bash -c 'wgsim -N {n_reads} -1 150 -2 150 -e 0.01 -r 0.001 "
-            f"{{input.fa}} {outdir}/data/reads_1.fq {outdir}/data/reads_2.fq "
-            f"&& gzip -f {outdir}/data/reads_1.fq {outdir}/data/reads_2.fq'",
+            """(
+                wgsim -N {params.n_reads} -1 150 -2 150 -e 0.01 -r 0.001 \
+                    {input.fa} {params.reads_prefix}_1.fq {params.reads_prefix}_2.fq &&
+                gzip -f {params.reads_prefix}_1.fq {params.reads_prefix}_2.fq
+            ) > {log} 2>&1""",
             "simulate_reads",
-        ) + " > {log} 2>&1"
+        )
 
 
-rule align_sort_bam:
+rule align:
     input:
         r1=f"{outdir}/data/reads_1.fq.gz",
         r2=f"{outdir}/data/reads_2.fq.gz",
@@ -109,20 +127,56 @@ rule align_sort_bam:
             ".rev.2.bt2",
         ),
     output:
-        bam=f"{outdir}/results/aligned.bam",
-        bai=f"{outdir}/results/aligned.bam.bai",
+        bam=f"{outdir}/results/aligned_unsorted.bam",
     log:
-        f"{outdir}/logs/align_sort_bam.log",
+        f"{outdir}/logs/align.log",
     benchmark:
-        repeat(f"{outdir}/benchmarks/align_sort_bam.tsv", bench_repeats)
+        repeat(f"{outdir}/benchmarks/align.tsv", bench_repeats)
     conda:
         "envs/genome_tools.yaml"
     threads: 4
+    params:
+        idx_prefix=f"{outdir}/data/genome",
     shell:
         wrap(
-            f"bash -c 'bowtie2 -x {outdir}/data/genome "
-            "-1 {input.r1} -2 {input.r2} -p {threads} "
-            "| samtools sort -o {output.bam} "
-            "&& samtools index {output.bam}'",
-            "align_sort_bam",
-        ) + " 2> {log}"
+            """( bowtie2 -x {params.idx_prefix} \
+                -1 {input.r1} -2 {input.r2} -p {threads} \
+                | samtools view -bS -o {output.bam} ) 2> {log}""",
+            "align",
+        )
+
+
+rule sort_bam:
+    input:
+        bam=f"{outdir}/results/aligned_unsorted.bam",
+    output:
+        bam=f"{outdir}/results/aligned.bam",
+    log:
+        f"{outdir}/logs/sort_bam.log",
+    benchmark:
+        repeat(f"{outdir}/benchmarks/sort_bam.tsv", bench_repeats)
+    conda:
+        "envs/genome_tools.yaml"
+    shell:
+        wrap(
+            """samtools sort -o {output.bam} {input.bam} 2> {log}""",
+            "sort_bam",
+        )
+
+
+rule index_bam:
+    input:
+        bam=f"{outdir}/results/aligned.bam",
+    output:
+        bai=f"{outdir}/results/aligned.bam.bai",
+    log:
+        f"{outdir}/logs/index_bam.log",
+    benchmark:
+        repeat(f"{outdir}/benchmarks/index_bam.tsv", bench_repeats)
+    conda:
+        "envs/genome_tools.yaml"
+    shell:
+        wrap(
+            """samtools index {input.bam} 2> {log}""",
+            "index_bam",
+        )
