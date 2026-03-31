@@ -49,9 +49,12 @@ rule simulate_genome:
         repeat(f"{outdir}/benchmarks/simulate_genome.tsv", bench_repeats)
     conda:
         "envs/genome_tools.yaml"
+    params:
+        n_chromosomes=n_chromosomes,
+        chr_length=chr_length,
     shell:
         wrap(
-            f"""python scripts/simulate_genome.py {{output.fa}} {n_chromosomes} {chr_length} 2> {{log}}""",
+            """python scripts/simulate_genome.py {output.fa} {params.n_chromosomes} {params.chr_length} 2> {log}""",
             "simulate_genome",
         )
 
@@ -75,9 +78,11 @@ rule index_genome:
         repeat(f"{outdir}/benchmarks/index_genome.tsv", bench_repeats)
     conda:
         "envs/genome_tools.yaml"
+    params:
+        idx_prefix=f"{outdir}/data/genome",
     shell:
         wrap(
-            f"""bowtie2-build {{input.fa}} {outdir}/data/genome > {{log}} 2>&1""",
+            """bowtie2-build {input.fa} {params.idx_prefix} > {log} 2>&1""",
             "index_genome",
         )
 
@@ -94,13 +99,16 @@ rule simulate_reads:
         repeat(f"{outdir}/benchmarks/simulate_reads.tsv", bench_repeats)
     conda:
         "envs/genome_tools.yaml"
+    params:
+        n_reads=n_reads,
+        reads_prefix=f"{outdir}/data/reads",
     shell:
         wrap(
-            f"""(
-                wgsim -N {n_reads} -1 150 -2 150 -e 0.01 -r 0.001 \
-                    {{input.fa}} {outdir}/data/reads_1.fq {outdir}/data/reads_2.fq &&
-                gzip -f {outdir}/data/reads_1.fq {outdir}/data/reads_2.fq
-            ) > {{log}} 2>&1""",
+            """(
+                wgsim -N {params.n_reads} -1 150 -2 150 -e 0.01 -r 0.001 \
+                    {input.fa} {params.reads_prefix}_1.fq {params.reads_prefix}_2.fq &&
+                gzip -f {params.reads_prefix}_1.fq {params.reads_prefix}_2.fq
+            ) > {log} 2>&1""",
             "simulate_reads",
         )
 
@@ -127,11 +135,13 @@ rule align:
     conda:
         "envs/genome_tools.yaml"
     threads: 4
+    params:
+        idx_prefix=f"{outdir}/data/genome",
     shell:
         wrap(
-            f"""{{ bowtie2 -x {outdir}/data/genome \
-                -1 {{input.r1}} -2 {{input.r2}} -p {{threads}} \
-                | samtools view -bS -o {{output.bam}}; }} 2> {{log}}""",
+            """( bowtie2 -x {params.idx_prefix} \
+                -1 {input.r1} -2 {input.r2} -p {threads} \
+                | samtools view -bS -o {output.bam} ) 2> {log}""",
             "align",
         )
 
