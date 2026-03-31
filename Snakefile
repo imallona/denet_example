@@ -13,7 +13,13 @@ bench_repeats = config.get("benchmark_repeats", 5)
 def wrap(cmd, step):
     if use_denet:
         out = f"{outdir}/denet_metrics/{step}.jsonl"
-        return f"mkdir -p {outdir}/denet_metrics && denet --out {out} -i 100 -m 100 run -- {cmd}"
+        return "\n".join([
+            f"mkdir -p {outdir}/denet_metrics",
+            f"( {cmd} ) &",
+            "_denet_pid=$!",
+            f"denet -o {out} -i 100 -m 100 -q --nodump attach $_denet_pid || true",
+            "wait $_denet_pid",
+        ])
     return cmd
 
 
@@ -45,9 +51,9 @@ rule simulate_genome:
         "envs/genome_tools.yaml"
     shell:
         wrap(
-            f"python scripts/simulate_genome.py {{output.fa}} {n_chromosomes} {chr_length}",
+            f"""python scripts/simulate_genome.py {{output.fa}} {n_chromosomes} {chr_length} 2> {{log}}""",
             "simulate_genome",
-        ) + " 2> {log}"
+        )
 
 
 rule index_genome:
@@ -71,9 +77,9 @@ rule index_genome:
         "envs/genome_tools.yaml"
     shell:
         wrap(
-            f"bowtie2-build {{input.fa}} {outdir}/data/genome",
+            f"""bowtie2-build {{input.fa}} {outdir}/data/genome > {{log}} 2>&1""",
             "index_genome",
-        ) + " > {log} 2>&1"
+        )
 
 
 rule simulate_reads:
@@ -90,11 +96,13 @@ rule simulate_reads:
         "envs/genome_tools.yaml"
     shell:
         wrap(
-            f"bash -c 'wgsim -N {n_reads} -1 150 -2 150 -e 0.01 -r 0.001 "
-            f"{{input.fa}} {outdir}/data/reads_1.fq {outdir}/data/reads_2.fq "
-            f"&& gzip -f {outdir}/data/reads_1.fq {outdir}/data/reads_2.fq'",
+            f"""(
+                wgsim -N {n_reads} -1 150 -2 150 -e 0.01 -r 0.001 \
+                    {{input.fa}} {outdir}/data/reads_1.fq {outdir}/data/reads_2.fq &&
+                gzip -f {outdir}/data/reads_1.fq {outdir}/data/reads_2.fq
+            ) > {{log}} 2>&1""",
             "simulate_reads",
-        ) + " > {log} 2>&1"
+        )
 
 
 rule align:
@@ -121,11 +129,11 @@ rule align:
     threads: 4
     shell:
         wrap(
-            f"bowtie2 -x {outdir}/data/genome "
-            "-1 {input.r1} -2 {input.r2} -p {threads} "
-            "| samtools view -bS -o {output.bam}",
+            f"""{{ bowtie2 -x {outdir}/data/genome \
+                -1 {{input.r1}} -2 {{input.r2}} -p {{threads}} \
+                | samtools view -bS -o {{output.bam}}; }} 2> {{log}}""",
             "align",
-        ) + " 2> {log}"
+        )
 
 
 rule sort_bam:
@@ -141,9 +149,9 @@ rule sort_bam:
         "envs/genome_tools.yaml"
     shell:
         wrap(
-            "samtools sort -o {output.bam} {input.bam}",
+            """samtools sort -o {output.bam} {input.bam} 2> {log}""",
             "sort_bam",
-        ) + " 2> {log}"
+        )
 
 
 rule index_bam:
@@ -159,6 +167,6 @@ rule index_bam:
         "envs/genome_tools.yaml"
     shell:
         wrap(
-            "samtools index {input.bam}",
+            """samtools index {input.bam} 2> {log}""",
             "index_bam",
-        ) + " 2> {log}"
+        )
