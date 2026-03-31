@@ -22,7 +22,9 @@ step_labels <- c(
   simulate_genome = "Genome\nsimulation",
   index_genome    = "Genome\nindexing",
   simulate_reads  = "Read\nsimulation",
-  align_sort_bam  = "Align, sort\n& index"
+  align           = "Align",
+  sort_bam        = "Sort BAM",
+  index_bam       = "Index BAM"
 )
 
 steps <- names(step_labels)
@@ -168,13 +170,14 @@ p_rss <- ggplot(rss_summary,
 
 ```{r fig-cpu-timeseries}
 p_cpu <- ggplot(denet_ts,
-                aes(x = time_s, y = cpu_usage,
-                    color = step_label,
-                    group = interaction(step_label, repeat_id))) +
-  geom_line(alpha = 0.7, linewidth = 0.6) +
+                aes(x = time_s, y = cpu_usage + 1,
+                    color = step_label)) +
+  geom_point(alpha = 0.5, size = 0.8) +
   facet_wrap(~ step_label, scales = "free_x", nrow = 1) +
+  scale_y_continuous(trans = "log10",
+                     labels = function(x) round(x - 1, 0)) +
   scale_color_brewer(palette = "Set2") +
-  labs(x = "Elapsed time (s)", y = "CPU usage (%)",
+  labs(x = "Elapsed time (s)", y = "CPU usage (%, log scale)",
        title = "C  CPU usage per rule (all repeats)") +
   guides(color = "none") +
   theme_bw(base_size = 11) +
@@ -184,12 +187,12 @@ p_cpu <- ggplot(denet_ts,
 ```{r fig-mem-timeseries}
 p_mem <- ggplot(denet_ts,
                 aes(x = time_s, y = mem_rss_mb,
-                    color = step_label,
-                    group = interaction(step_label, repeat_id))) +
-  geom_line(alpha = 0.7, linewidth = 0.6) +
+                    color = step_label)) +
+  geom_point(alpha = 0.5, size = 0.8) +
   facet_wrap(~ step_label, scales = "free_x", nrow = 1) +
+  scale_y_log10(labels = label_number(accuracy = 1)) +
   scale_color_brewer(palette = "Set2") +
-  labs(x = "Elapsed time (s)", y = "RSS (MB)",
+  labs(x = "Elapsed time (s)", y = "RSS (MB, log scale)",
        title = "D  Memory usage per rule (all repeats)") +
   guides(color = "none") +
   theme_bw(base_size = 11) +
