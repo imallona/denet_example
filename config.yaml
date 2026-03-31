@@ -1,6 +1,6 @@
 use_denet: false
 outdir: "results"
-n_reads: 1000000
-n_chromosomes: 3
-chr_length: 1000000
-benchmark_repeats: 5
+n_reads: 10000000
+n_chromosomes: 5
+chr_length: 5000000
+benchmark_repeats: 3
