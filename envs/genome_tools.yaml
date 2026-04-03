@@ -1,12 +1,11 @@
 name: genome_tools
 channels:
-  - bioconda
   - conda-forge
-  - nodefaults
+  - bioconda
+  - defaults
 dependencies:
-  - python>=3.9
+  - python
   - wgsim=1.0
   - bowtie2
   - ncurses
-  - samtools #>=1.16
-  - libdeflate #<1.26
+  - samtools=1.20
