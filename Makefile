@@ -37,7 +37,7 @@ figures: setup-r-env
 	conda run -n rstats Rscript -e \
 	  "rmarkdown::render('analysis.Rmd', output_dir='figures')"
 	mkdir -p $(PAPER_DIR)/figures
-	cp figures/analysis.pdf $(PAPER_DIR)/figures/denet_benchmark.pdf
+	cp figures/analysis.html $(PAPER_DIR)/figures/denet_benchmark.html
 
 clean:
 	rm -rf results_baseline results_denet results_denet_native figures __pycache__ .snakemake
