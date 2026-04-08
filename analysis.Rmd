@@ -40,13 +40,16 @@ read_benchmarks <- function(outdir, condition) {
   }) |> bind_rows()
 }
 
-baseline <- read_benchmarks("results_baseline", "Snakemake only")
-denet    <- read_benchmarks("results_denet",    "Snakemake + denet")
+baseline     <- read_benchmarks("results_baseline",    "Snakemake")
+denet_wrap   <- read_benchmarks("results_denet",        "Snakemake + denet wrap")
+denet_native <- read_benchmarks("results_denet_native", "Snakemake + denet native")
 
-bench <- bind_rows(baseline, denet) |>
+condition_levels <- c("Snakemake", "Snakemake + denet wrap", "Snakemake + denet native")
+
+bench <- bind_rows(baseline, denet_wrap, denet_native) |>
   mutate(
     step_label = factor(step_labels[step], levels = step_labels),
-    condition  = factor(condition, levels = c("Snakemake only", "Snakemake + denet"))
+    condition  = factor(condition, levels = condition_levels)
   )
 ```
 
@@ -134,8 +137,9 @@ p_time <- ggplot(bench_summary,
            ymin = mean_s - sd_s, ymax = mean_s + sd_s)) +
   geom_col(position = position_dodge(0.75), width = 0.65) +
   geom_errorbar(position = position_dodge(0.75), width = 0.25) +
-  scale_fill_manual(values = c("Snakemake only" = "#4C72B0",
-                               "Snakemake + denet" = "#DD8452")) +
+  scale_fill_manual(values = c("Snakemake" = "#4C72B0",
+                               "Snakemake + denet wrap" = "#DD8452",
+                               "Snakemake + denet native" = "#55A868")) +
   labs(x = NULL, y = "Wall-clock time (s)", fill = NULL,
        title = "A  Wall-clock time per step",
        subtitle = paste0("mean +/- 1 SD, n = ", n_repeats, " repeats")) +
@@ -158,8 +162,9 @@ p_rss <- ggplot(rss_summary,
            ymin = mean_rss - sd_rss, ymax = mean_rss + sd_rss)) +
   geom_col(position = position_dodge(0.75), width = 0.65) +
   geom_errorbar(position = position_dodge(0.75), width = 0.25) +
-  scale_fill_manual(values = c("Snakemake only" = "#4C72B0",
-                               "Snakemake + denet" = "#DD8452")) +
+  scale_fill_manual(values = c("Snakemake" = "#4C72B0",
+                               "Snakemake + denet wrap" = "#DD8452",
+                               "Snakemake + denet native" = "#55A868")) +
   labs(x = NULL, y = "Peak RSS (MB)", fill = NULL,
        title = "B  Peak resident memory per step",
        subtitle = paste0("mean +/- 1 SD, n = ", n_repeats, " repeats")) +
@@ -203,7 +208,7 @@ p_mem <- ggplot(denet_ts,
         axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-```{r combined-figure, fig.cap="Resource profiling of a simulated read alignment workflow. (A, B) Mean wall-clock time and peak RSS per pipeline step; error bars are +/- 1 SD across benchmark repeats. SD was chosen over SE or CV to express absolute run-to-run variability in interpretable units. (C, D) CPU and RSS timeseries recorded by denet at 50 ms intervals, faceted by rule in pipeline order; each line is one repeat. Elapsed time is relative to the start of each repeat. CPU usage is flat because steps run at consistent utilization throughout (e.g., bowtie2 at ~400% for four threads). RSS is flat because memory is allocated at process startup and does not change during execution."}
+```{r combined-figure, fig.cap="Resource profiling of a simulated read alignment workflow. (A, B) Mean wall-clock time and peak RSS per pipeline step under three conditions: Snakemake (baseline, no denet), Snakemake + denet wrap (denet attached to each rule subprocess via a shell wrapper), and Snakemake + denet native (denet on PATH, no explicit wrap, rules run unmodified). Error bars are +/- 1 SD across benchmark repeats. SD was chosen over SE or CV to express absolute run-to-run variability in interpretable units. (C, D) CPU and RSS timeseries recorded by denet at 50 ms intervals for the wrap condition, faceted by rule in pipeline order; each line is one repeat. Elapsed time is relative to the start of each repeat."}
 (p_time | p_rss) / (p_cpu | p_mem) +
   plot_layout(guides = "collect") &
   theme(legend.position = "bottom")
