@@ -58,13 +58,13 @@ jobs:
       - name: run baseline pipeline
         run: |
           snakemake \
-            --config use_denet=false outdir=results_baseline n_reads=10000 n_chromosomes=2 chr_length=100000 benchmark_repeats=5 \
+            --config use_denet=false outdir=results_baseline n_reads=10000 n_chromosomes=2 chr_length=100000 benchmark_repeats=3 \
             --use-conda \
             --nolock \
             --rerun-incomplete \
             --cores 4
 
-      - name: upload logs and benchmarks
+      - name: upload benchmarks
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -112,45 +112,119 @@ jobs:
           which denet || cargo install denet
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: run baseline pipeline
-        run: |
-          snakemake \
-            --config use_denet=false outdir=results_baseline n_reads=10000 n_chromosomes=2 chr_length=100000 benchmark_repeats=5 \
-            --use-conda \
-            --nolock \
-            --rerun-incomplete \
-            --cores 4
-
       - name: run denet pipeline
         run: |
           snakemake \
-            --config use_denet=true outdir=results_denet n_reads=10000 n_chromosomes=2 chr_length=100000 benchmark_repeats=5 \
+            --config use_denet=true outdir=results_denet n_reads=10000 n_chromosomes=2 chr_length=100000 benchmark_repeats=3 \
             --use-conda \
             --nolock \
             --rerun-incomplete \
             --cores 4
 
-      - name: print logs on failure
-        if: failure()
-        run: |
-          for f in results_baseline/logs/*.log results_denet/logs/*.log; do
-            echo "=== $f ==="
-            cat "$f" || true
-          done
-
-      - name: upload logs
+      - name: upload benchmarks
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: denet-logs
+          name: denet-outputs
           path: |
-            results_baseline/logs/
-            results_baseline/benchmarks/
             results_denet/logs/
             results_denet/benchmarks/
             results_denet/denet_metrics/
             .snakemake/log/
           if-no-files-found: ignore
+
+  integration-denet-native:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: snakemake
+          create-args: python=3.12 snakemake
+          condarc: |
+            channels:
+              - conda-forge
+              - bioconda
+
+      - name: cache conda environments
+        uses: actions/cache@v4
+        with:
+          path: .snakemake/conda
+          key: snakemake-conda-${{ hashFiles('envs/genome_tools.yaml') }}
+
+      - name: cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/denet
+          key: cargo-denet-${{ runner.os }}
+
+      - name: install denet
+        run: |
+          which denet || cargo install denet
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: run denet native pipeline
+        run: |
+          snakemake \
+            --config use_denet_native=true outdir=results_denet_native n_reads=10000 n_chromosomes=2 chr_length=100000 benchmark_repeats=3 \
+            --use-conda \
+            --nolock \
+            --rerun-incomplete \
+            --cores 4
+
+      - name: upload benchmarks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: denet-native-outputs
+          path: |
+            results_denet_native/logs/
+            results_denet_native/benchmarks/
+            .snakemake/log/
+          if-no-files-found: ignore
+
+  render-report:
+    runs-on: ubuntu-latest
+    needs: [integration-baseline, integration-denet, integration-denet-native]
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: snakemake
+          create-args: python=3.12 snakemake
+          condarc: |
+            channels:
+              - conda-forge
+              - bioconda
+
+      - name: download baseline outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: baseline-outputs
+          path: .
+
+      - name: download denet outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: denet-outputs
+          path: .
+
+      - name: download denet native outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: denet-native-outputs
+          path: .
 
       - name: render report
         run: |
