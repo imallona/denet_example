@@ -211,7 +211,12 @@ p_mem <- ggplot(denet_ts,
 ```
 
 ```{r combined-figure, fig.cap="Resource profiling of a simulated read alignment workflow. (A, B) Mean wall-clock time and peak RSS per pipeline step under three conditions: Snakemake (baseline, no denet), Snakemake + denet wrap (denet attached to each rule subprocess via a shell wrapper), and Snakemake + denet native (denet on PATH, no explicit wrap, rules run unmodified). Error bars are +/- 1 SD across benchmark repeats. SD was chosen over SE or CV to express absolute run-to-run variability in interpretable units. (C, D) CPU and RSS timeseries recorded by denet at 50 ms intervals for the wrap condition, faceted by rule in pipeline order; each line is one repeat. Elapsed time is relative to the start of each repeat."}
-(p_time | p_rss) / (p_cpu | p_mem) +
+fig <- (p_time | p_rss) / (p_cpu | p_mem) +
   plot_layout(guides = "collect") &
   theme(legend.position = "bottom")
+
+dir.create("figures", showWarnings = FALSE)
+ggsave("figures/denet_benchmark.pdf", fig, width = 10, height = 8)
+
+fig
 ```
