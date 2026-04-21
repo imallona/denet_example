@@ -27,7 +27,7 @@ jobs:
       - name: dry-run baseline
         run: |
           snakemake \
-            --config use_denet=false outdir=results_baseline \
+            --config use_denet=false outdir=results_baseline dup_fraction=0.2 \
             --dry-run \
             --nolock \
             --cores 4
@@ -58,7 +58,7 @@ jobs:
       - name: run baseline pipeline
         run: |
           snakemake \
-            --config use_denet=false outdir=results_baseline n_reads=10000 n_chromosomes=2 chr_length=100000 benchmark_repeats=3 \
+            --config use_denet=false outdir=results_baseline n_reads=10000 n_chromosomes=2 chr_length=100000 benchmark_repeats=3 dup_fraction=0.2 \
             --use-conda \
             --nolock \
             --rerun-incomplete \
@@ -115,7 +115,7 @@ jobs:
       - name: run denet pipeline
         run: |
           snakemake \
-            --config use_denet=true outdir=results_denet n_reads=10000 n_chromosomes=2 chr_length=100000 benchmark_repeats=3 \
+            --config use_denet=true outdir=results_denet n_reads=10000 n_chromosomes=2 chr_length=100000 benchmark_repeats=3 dup_fraction=0.2 \
             --use-conda \
             --nolock \
             --rerun-incomplete \
@@ -173,7 +173,7 @@ jobs:
       - name: run denet native pipeline
         run: |
           snakemake \
-            --config use_denet_native=true outdir=results_denet_native n_reads=10000 n_chromosomes=2 chr_length=100000 benchmark_repeats=3 \
+            --config use_denet_native=true outdir=results_denet_native n_reads=10000 n_chromosomes=2 chr_length=100000 benchmark_repeats=3 dup_fraction=0.2 \
             --use-conda \
             --nolock \
             --rerun-incomplete \

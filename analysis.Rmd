@@ -24,7 +24,11 @@ step_labels <- c(
   simulate_reads  = "Simulate\nreads",
   align           = "Align\nreads",
   sort_bam        = "Sort\nBAM",
-  index_bam       = "Index\nBAM"
+  index_bam       = "Index\nBAM",
+  markdup         = "Mark\nduplicates",
+  index_markdup   = "Index\nmarkdup",
+  faidx_genome    = "Faidx\ngenome",
+  call_variants   = "Call\nvariants"
 )
 
 steps <- names(step_labels)

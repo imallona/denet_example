@@ -16,6 +16,7 @@ n_reads = config.get("n_reads", 1_000_000)
 n_chromosomes = config.get("n_chromosomes", 3)
 chr_length = config.get("chr_length", 1_000_000)
 bench_repeats = config.get("benchmark_repeats", 5)
+dup_fraction = float(config.get("dup_fraction", 0.0))
 
 
 def wrap(cmd, step):
@@ -31,20 +32,28 @@ def wrap(cmd, step):
     return cmd
 
 
+_all_steps = [
+    "simulate_genome",
+    "index_genome",
+    "simulate_reads",
+    "align",
+    "sort_bam",
+    "index_bam",
+    "markdup",
+    "index_markdup",
+    "faidx_genome",
+    "call_variants",
+]
+
+
 rule all:
     input:
         f"{outdir}/results/aligned.bam.bai",
+        f"{outdir}/results/variants.vcf.gz",
         expand(
             "{outdir}/benchmarks/{step}.tsv",
             outdir=outdir,
-            step=[
-                "simulate_genome",
-                "index_genome",
-                "simulate_reads",
-                "align",
-                "sort_bam",
-                "index_bam",
-            ],
+            step=_all_steps,
         ),
 
 
@@ -110,12 +119,17 @@ rule simulate_reads:
     params:
         n_reads=n_reads,
         reads_prefix=f"{outdir}/data/reads",
+        dup_fraction=dup_fraction,
     shell:
         wrap(
             """(
                 wgsim -N {params.n_reads} -1 150 -2 150 -e 0.01 -r 0.001 \
                     {input.fa} {params.reads_prefix}_1.fq {params.reads_prefix}_2.fq &&
-                gzip -f {params.reads_prefix}_1.fq {params.reads_prefix}_2.fq
+                gzip -f {params.reads_prefix}_1.fq {params.reads_prefix}_2.fq &&
+                if awk 'BEGIN {{ exit !({params.dup_fraction} > 0) }}'; then
+                    python scripts/inject_duplicates.py \
+                        {output.r1} {output.r2} --fraction {params.dup_fraction}
+                fi
             ) > {log} 2>&1""",
             "simulate_reads",
         )
@@ -187,4 +201,85 @@ rule index_bam:
         wrap(
             """samtools index {input.bam} 2> {log}""",
             "index_bam",
+        )
+
+
+rule markdup:
+    input:
+        bam=f"{outdir}/results/aligned_unsorted.bam",
+    output:
+        bam=f"{outdir}/results/aligned.markdup.bam",
+    log:
+        f"{outdir}/logs/markdup.log",
+    benchmark:
+        repeat(f"{outdir}/benchmarks/markdup.tsv", bench_repeats)
+    conda:
+        "envs/genome_tools.yaml"
+    threads: 2
+    shell:
+        wrap(
+            """( samtools sort -n -@ {threads} {input.bam} \
+                | samtools fixmate -m -@ {threads} - - \
+                | samtools sort -@ {threads} - \
+                | samtools markdup -@ {threads} - {output.bam} ) 2> {log}""",
+            "markdup",
+        )
+
+
+rule index_markdup:
+    input:
+        bam=f"{outdir}/results/aligned.markdup.bam",
+    output:
+        bai=f"{outdir}/results/aligned.markdup.bam.bai",
+    log:
+        f"{outdir}/logs/index_markdup.log",
+    benchmark:
+        repeat(f"{outdir}/benchmarks/index_markdup.tsv", bench_repeats)
+    conda:
+        "envs/genome_tools.yaml"
+    shell:
+        wrap(
+            """samtools index {input.bam} 2> {log}""",
+            "index_markdup",
+        )
+
+
+rule faidx_genome:
+    input:
+        fa=f"{outdir}/data/genome.fa",
+    output:
+        fai=f"{outdir}/data/genome.fa.fai",
+    log:
+        f"{outdir}/logs/faidx_genome.log",
+    benchmark:
+        repeat(f"{outdir}/benchmarks/faidx_genome.tsv", bench_repeats)
+    conda:
+        "envs/genome_tools.yaml"
+    shell:
+        wrap(
+            """samtools faidx {input.fa} 2> {log}""",
+            "faidx_genome",
+        )
+
+
+rule call_variants:
+    input:
+        bam=f"{outdir}/results/aligned.markdup.bam",
+        bai=f"{outdir}/results/aligned.markdup.bam.bai",
+        fa=f"{outdir}/data/genome.fa",
+        fai=f"{outdir}/data/genome.fa.fai",
+    output:
+        vcf=f"{outdir}/results/variants.vcf.gz",
+    log:
+        f"{outdir}/logs/call_variants.log",
+    benchmark:
+        repeat(f"{outdir}/benchmarks/call_variants.tsv", bench_repeats)
+    conda:
+        "envs/genome_tools.yaml"
+    threads: 2
+    shell:
+        wrap(
+            """( bcftools mpileup --threads {threads} -f {input.fa} {input.bam} \
+                | bcftools call --threads {threads} -mv -Oz -o {output.vcf} ) 2> {log}""",
+            "call_variants",
         )
