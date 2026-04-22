@@ -7,7 +7,7 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
-                      fig.width = 10, fig.height = 8)
+                      fig.width = 12, fig.height = 8)
 library(ggplot2)
 library(dplyr)
 library(tidyr)
@@ -19,15 +19,27 @@ library(stringr)
 
 ```{r load-benchmark-tsv}
 step_labels <- c(
-  simulate_genome = "Simulate\ngenome",
-  index_genome    = "Index\ngenome",
-  simulate_reads  = "Simulate\nreads",
-  align           = "Align\nreads",
-  sort_bam        = "Sort\nBAM",
-  index_bam       = "Index\nBAM"
+  simulate_genome = "Simulate genome",
+  index_genome    = "Index genome",
+  simulate_reads  = "Simulate reads",
+  align           = "Align reads",
+  sort_bam        = "Sort BAM",
+  index_bam       = "Index BAM",
+  markdup         = "Mark duplicates",
+  index_markdup   = "Index markdup",
+  faidx_genome    = "Faidx genome",
+  call_variants   = "Call variants"
 )
 
 steps <- names(step_labels)
+
+ts_facet_labels <- c(
+  "Simulate reads" = "Simulate\nreads",
+  "Align reads" = "Align\nreads",
+  "Sort BAM" = "Sort\nBAM",
+  "Mark duplicates" = "Mark\nduplicates",
+  "Call variants" = "Call\nvariants"
+)
 
 read_benchmarks <- function(outdir, condition) {
   lapply(steps, function(step) {
@@ -54,55 +66,34 @@ bench <- bind_rows(baseline, denet_wrap, denet_native) |>
 ```
 
 ```{r load-denet-jsonl}
-parse_denet_jsonl <- function(path) {
-  lines <- readLines(path)
-  # first line is metadata (has "pid" key), remaining lines are samples
-  samples <- lines[sapply(lines, function(l) grepl('"ts_ms"', l))]
-  parsed <- lapply(samples, function(l) {
-    obj <- fromJSON(l)
-    agg <- obj$aggregated
-    data.frame(
-      ts_ms         = agg$ts_ms,
-      cpu_usage     = agg$cpu_usage,
-      mem_rss_mb    = agg$mem_rss_kb / 1024,
-      disk_read_mb  = agg$disk_read_bytes / 1024^2,
-      disk_write_mb = agg$disk_write_bytes / 1024^2,
-      thread_count  = agg$thread_count
-    )
-  })
-  df <- bind_rows(parsed)
-  # relative time from start of first sample
-  df$time_s <- (df$ts_ms - df$ts_ms[1]) / 1000
-  df
-}
-
 denet_metrics_dir <- "results_denet/denet_metrics"
 
 denet_files <- list.files(denet_metrics_dir, pattern = "\\.jsonl$", full.names = TRUE)
 
 denet_ts <- lapply(denet_files, function(f) {
   step <- str_remove(basename(f), "\\.jsonl$")
-  # each repeat appends to the same file; split on metadata lines
+  # metadata lines start with {"pid":...; sample lines start with {"ts_ms":...
+  # (samples also contain "pid" inside children[], so match on line prefix)
   lines <- readLines(f)
-  meta_idx <- which(grepl('"pid"', lines))
+  meta_idx <- which(grepl('^\\{"pid":', lines))
   run_list <- lapply(seq_along(meta_idx), function(i) {
     start <- meta_idx[i] + 1
     end   <- if (i < length(meta_idx)) meta_idx[i + 1] - 1 else length(lines)
     block <- lines[start:end]
-    block <- block[nzchar(block) & grepl('"ts_ms"', block)]
+    block <- block[nzchar(block) & grepl('^\\{"ts_ms":', block)]
     if (length(block) == 0) return(NULL)
     parsed <- lapply(block, function(l) {
       obj <- fromJSON(l)
       agg <- obj$aggregated
       data.frame(
-        ts_ms         = agg$ts_ms,
-        cpu_usage     = agg$cpu_usage,
-        mem_rss_mb    = agg$mem_rss_kb / 1024,
-        disk_write_mb = agg$disk_write_bytes / 1024^2
+        ts_ms = as.numeric(agg$ts_ms),
+        cpu_usage = as.numeric(agg$cpu_usage),
+        mem_rss_mb = as.numeric(agg$mem_rss_kb) / 1024,
+        disk_write_mb = as.numeric(agg$disk_write_bytes) / 1024^2
       )
     })
-    df <- bind_rows(parsed)
-    df$time_s  <- (df$ts_ms - df$ts_ms[1]) / 1000
+    df <- bind_rows(parsed) |> arrange(ts_ms)
+    df$time_s <- (df$ts_ms - df$ts_ms[1]) / 1000
     df$repeat_id <- i
     df
   })
@@ -144,9 +135,10 @@ p_time <- ggplot(bench_summary,
   labs(x = NULL, y = "Wall-clock time (s)", fill = NULL,
        title = "A  Wall-clock time per step",
        subtitle = paste0("mean +/- 1 SD, n = ", n_repeats, " repeats")) +
-  theme_bw(base_size = 11) +
+  theme_bw(base_size = 13) +
   theme(legend.position = "bottom",
-        panel.grid.major.x = element_blank())
+        panel.grid.major.x = element_blank(),
+        axis.text.x = element_text(angle = 30, hjust = 1))
 ```
 
 ```{r fig-max-rss}
@@ -170,53 +162,109 @@ p_rss <- ggplot(rss_summary,
   labs(x = NULL, y = "Peak RSS (MB)", fill = NULL,
        title = "B  Peak resident memory per step",
        subtitle = paste0("mean +/- 1 SD, n = ", n_repeats, " repeats")) +
-  theme_bw(base_size = 11) +
+  theme_bw(base_size = 13) +
   theme(legend.position = "bottom",
-        panel.grid.major.x = element_blank())
+        panel.grid.major.x = element_blank(),
+        axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+```{r fig-io-out}
+io_summary <- bench |>
+  group_by(step_label, condition) |>
+  summarise(
+    mean_io = mean(io_out),
+    sd_io = sd(io_out),
+    .groups = "drop"
+  )
+
+p_io_bar <- ggplot(io_summary,
+       aes(x = step_label, y = mean_io, fill = condition,
+           ymin = pmax(mean_io - sd_io, 0), ymax = mean_io + sd_io)) +
+  geom_col(position = position_dodge(0.75), width = 0.65) +
+  geom_errorbar(position = position_dodge(0.75), width = 0.25) +
+  scale_y_continuous(trans = "log1p", labels = label_number(accuracy = 1)) +
+  scale_fill_manual(values = c("Snakemake" = "#4C72B0",
+                               "Snakemake + denet wrap" = "#DD8452",
+                               "Snakemake + denet native" = "#55A868")) +
+  labs(x = NULL, y = "Disk write (MB)", fill = NULL,
+       title = "C  Disk write per step",
+       subtitle = paste0("mean +/- 1 SD, n = ", n_repeats, " repeats")) +
+  theme_bw(base_size = 13) +
+  theme(legend.position = "bottom",
+        panel.grid.major.x = element_blank(),
+        axis.text.x = element_text(angle = 30, hjust = 1))
 ```
 
 ```{r fig-cpu-timeseries}
 p_cpu <- ggplot(denet_ts,
                 aes(x = time_s, y = cpu_usage + 1,
-                    color = step_label)) +
-  geom_point(alpha = 0.5, size = 0.8) +
-  facet_wrap(~ step_label, scales = "free_x", nrow = 1) +
+                    color = step_label, group = repeat_id)) +
+  geom_line(alpha = 0.35, linewidth = 0.4) +
+  geom_point(alpha = 0.6, size = 0.6) +
+  facet_wrap(~ step_label, scales = "free_x", nrow = 1,
+             labeller = labeller(step_label = ts_facet_labels)) +
   scale_x_continuous(n.breaks = 4) +
   scale_y_continuous(trans = "log10",
                      labels = function(x) round(x - 1, 0)) +
   scale_color_brewer(palette = "Set2") +
   labs(x = "Elapsed time (s)", y = "CPU usage (%)",
-       title = "C  CPU usage per rule (all repeats)") +
+       title = "D  CPU usage per rule (all repeats)") +
   guides(color = "none") +
-  theme_bw(base_size = 11) +
-  theme(strip.text = element_text(size = 9),
-        axis.text.x = element_text(angle = 45, hjust = 1))
+  theme_bw(base_size = 13) +
+  theme(strip.text = element_text(size = 7),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid = element_blank())
 ```
 
 ```{r fig-mem-timeseries}
 p_mem <- ggplot(denet_ts,
                 aes(x = time_s, y = mem_rss_mb,
-                    color = step_label)) +
-  geom_point(alpha = 0.8, size = 1.5) +
-  facet_wrap(~ step_label, scales = "free_x", nrow = 1) +
+                    color = step_label, group = repeat_id)) +
+  geom_line(alpha = 0.35, linewidth = 0.4) +
+  geom_point(alpha = 0.6, size = 0.7) +
+  facet_wrap(~ step_label, scales = "free_x", nrow = 1,
+             labeller = labeller(step_label = ts_facet_labels)) +
   scale_x_continuous(n.breaks = 4) +
   scale_y_log10(labels = label_number(accuracy = 1)) +
   scale_color_brewer(palette = "Set2") +
   labs(x = "Elapsed time (s)", y = "RSS (MB)",
-       title = "D  Memory usage per rule (all repeats)") +
+       title = "E  Memory usage per rule (all repeats)") +
   guides(color = "none") +
-  theme_bw(base_size = 11) +
-  theme(strip.text = element_text(size = 9),
-        axis.text.x = element_text(angle = 45, hjust = 1))
+  theme_bw(base_size = 13) +
+  theme(strip.text = element_text(size = 7),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid = element_blank())
 ```
 
-```{r combined-figure, fig.cap="Resource profiling of a simulated read alignment workflow. (A, B) Mean wall-clock time and peak RSS per pipeline step under three conditions: Snakemake (baseline, no denet), Snakemake + denet wrap (denet attached to each rule subprocess via a shell wrapper), and Snakemake + denet native (denet on PATH, no explicit wrap, rules run unmodified). Error bars are +/- 1 SD across benchmark repeats. SD was chosen over SE or CV to express absolute run-to-run variability in interpretable units. (C, D) CPU and RSS timeseries recorded by denet at 50 ms intervals for the wrap condition, faceted by rule in pipeline order; each line is one repeat. Elapsed time is relative to the start of each repeat."}
-fig <- (p_time | p_rss) / (p_cpu | p_mem) +
+```{r fig-io-timeseries}
+p_io <- ggplot(denet_ts,
+               aes(x = time_s, y = disk_write_mb,
+                   color = step_label, group = repeat_id)) +
+  geom_line(alpha = 0.35, linewidth = 0.4) +
+  geom_point(alpha = 0.6, size = 0.7) +
+  facet_wrap(~ step_label, scales = "free_x", nrow = 1,
+             labeller = labeller(step_label = ts_facet_labels)) +
+  scale_x_continuous(n.breaks = 4) +
+  scale_y_continuous(labels = label_number(accuracy = 1)) +
+  scale_color_brewer(palette = "Set2") +
+  labs(x = "Elapsed time (s)", y = "Disk write (MB, cumulative)",
+       title = "F  Disk write per rule (all repeats)") +
+  guides(color = "none") +
+  theme_bw(base_size = 13) +
+  theme(strip.text = element_text(size = 7),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid = element_blank())
+```
+
+```{r combined-figure, fig.cap="Resource profiling of a simulated read alignment workflow. (A, B, C) Mean wall-clock time, peak RSS, and disk bytes written per pipeline step under three conditions: Snakemake (baseline, no denet), Snakemake + denet wrap (denet attached to each rule subprocess via a shell wrapper), and Snakemake + denet native (denet on PATH, no explicit wrap, rules run unmodified). Error bars are +/- 1 SD across benchmark repeats. SD was chosen over SE or CV to express absolute run-to-run variability in interpretable units. (D, E, F) CPU, RSS, and cumulative disk-write timeseries recorded by denet at 50 ms intervals for the wrap condition, faceted by rule in pipeline order. Elapsed time is relative to the start of each repeat."}
+fig <- (p_time | p_rss | p_io_bar) / (p_cpu | p_mem | p_io) +
   plot_layout(guides = "collect") &
-  theme(legend.position = "bottom")
+  theme(legend.position = "bottom",
+        plot.margin = margin(2, 2, 2, 2),
+        panel.spacing = unit(0.3, "lines"))
 
 dir.create("figures", showWarnings = FALSE)
-ggsave("figures/denet_benchmark.pdf", fig, width = 10, height = 8)
+ggsave("figures/denet_benchmark.pdf", fig, width = 12, height = 8)
 
 fig
 ```

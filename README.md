@@ -25,6 +25,22 @@ denet is not available via conda and must be installed this way for the denet wr
 Workflow parameters are set in `config.yaml`. By default the pipeline simulates a 500 kb genome (5 chromosomes of 100 kb each) and 1 million paired-end reads of 150 bp, with 3 benchmark repeats per rule. The output directory defaults to
 `results/`. The `use_denet` and `use_denet_native` flags select the monitoring condition; both default to false (baseline run).
 
+### Pipeline stages
+
+simulate_genome, index_genome, simulate_reads, align (bowtie2, 4 threads), sort_bam, index_bam, markdup (name-sort, fixmate, coord-sort, `samtools markdup`), index_markdup, faidx_genome, call_variants (`bcftools mpileup | bcftools call -mv`).
+
+`dup_fraction` (0 to 1) injects synthetic PCR-like duplicates after wgsim so markdup has real work to do; at 0, markdup only sees coordinate collisions from oversampling.
+
+### Paper-figure settings
+
+The defaults in `config.yaml` are small for fast local iteration. The paper figure uses larger inputs so the resource profiles have visible shape. Expect about 25 to 30 minutes total on 4 cores across all three conditions; `call_variants` (`bcftools mpileup` / `bcftools call`, both run with 2 threads) and `align` dominate. `benchmark_repeats` multiplies every rule's wall time and is the main knob if you are over budget.
+
+```
+snakemake --use-conda --cores 4 --forceall --config use_denet=false outdir=results_baseline n_chromosomes=2 chr_length=5000000 n_reads=1500000 dup_fraction=0.2
+snakemake --use-conda --cores 4 --forceall --config use_denet=true outdir=results_denet n_chromosomes=2 chr_length=5000000 n_reads=1500000 dup_fraction=0.2
+snakemake --use-conda --cores 4 --forceall --config use_denet_native=true outdir=results_denet_native n_chromosomes=2 chr_length=5000000 n_reads=1500000 dup_fraction=0.2
+```
+
 ## Running locally
 
 ```
@@ -38,11 +54,11 @@ make figures       # renders analysis.Rmd to figures/analysis.html and figures/d
 
 ## Output
 
-- `results_baseline/benchmarks/` — snakemake benchmark TSVs (wall time, peak RSS, CPU time, I/O)
-- `results_denet/benchmarks/` and `results_denet/denet_metrics/` — benchmark TSVs and per-step JSONL timeseries
-- `results_denet_native/benchmarks/` — benchmark TSVs (denet integrated as native profiler)
-- `figures/analysis.html` — interactive HTML report
-- `figures/denet_benchmark.pdf` — figure for the paper
+- `results_baseline/benchmarks/`: snakemake benchmark TSVs (wall time, peak RSS, CPU time, I/O)
+- `results_denet/benchmarks/` and `results_denet/denet_metrics/`: benchmark TSVs and per-step JSONL timeseries
+- `results_denet_native/benchmarks/`: benchmark TSVs (denet integrated as native profiler)
+- `figures/analysis.html`: interactive HTML report
+- `figures/denet_benchmark.pdf`: figure for the paper
 
 ## CI/CD
 

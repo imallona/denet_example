@@ -4,3 +4,4 @@ n_reads: 1000000
 n_chromosomes: 5
 chr_length: 100000
 benchmark_repeats: 3
+dup_fraction: 0.0
