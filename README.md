@@ -33,7 +33,7 @@ simulate_genome, index_genome, simulate_reads, align (bowtie2, 4 threads), sort_
 
 ### Paper-figure settings
 
-The defaults in `config.yaml` are small for fast local iteration. The paper figure uses larger inputs so the resource profiles have visible shape. Expect about 25 to 30 minutes total on 4 cores across all three conditions; `call_variants` (single-threaded mpileup) and `align` dominate. `benchmark_repeats` multiplies every rule's wall time and is the main knob if you are over budget.
+The defaults in `config.yaml` are small for fast local iteration. The paper figure uses larger inputs so the resource profiles have visible shape. Expect about 25 to 30 minutes total on 4 cores across all three conditions; `call_variants` (`bcftools mpileup` / `bcftools call`, both run with 2 threads) and `align` dominate. `benchmark_repeats` multiplies every rule's wall time and is the main knob if you are over budget.
 
 ```
 snakemake --use-conda --cores 4 --forceall --config use_denet=false outdir=results_baseline n_chromosomes=2 chr_length=5000000 n_reads=1500000 dup_fraction=0.2

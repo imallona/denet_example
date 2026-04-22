@@ -66,28 +66,6 @@ bench <- bind_rows(baseline, denet_wrap, denet_native) |>
 ```
 
 ```{r load-denet-jsonl}
-parse_denet_jsonl <- function(path) {
-  lines <- readLines(path)
-  # first line is metadata (has "pid" key), remaining lines are samples
-  samples <- lines[sapply(lines, function(l) grepl('"ts_ms"', l))]
-  parsed <- lapply(samples, function(l) {
-    obj <- fromJSON(l)
-    agg <- obj$aggregated
-    data.frame(
-      ts_ms         = agg$ts_ms,
-      cpu_usage     = agg$cpu_usage,
-      mem_rss_mb    = agg$mem_rss_kb / 1024,
-      disk_read_mb  = agg$disk_read_bytes / 1024^2,
-      disk_write_mb = agg$disk_write_bytes / 1024^2,
-      thread_count  = agg$thread_count
-    )
-  })
-  df <- bind_rows(parsed)
-  # relative time from start of first sample
-  df$time_s <- (df$ts_ms - min(df$ts_ms)) / 1000
-  df
-}
-
 denet_metrics_dir <- "results_denet/denet_metrics"
 
 denet_files <- list.files(denet_metrics_dir, pattern = "\\.jsonl$", full.names = TRUE)

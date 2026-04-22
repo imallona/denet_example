@@ -11,7 +11,6 @@ import argparse
 import gzip
 import os
 import random
-import shutil
 import sys
 
 
